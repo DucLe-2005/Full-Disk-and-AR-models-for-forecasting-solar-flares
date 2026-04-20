@@ -1,0 +1,8 @@
+-r base.txt
+fastapi
+minio
+pydantic
+pydantic-settings
+sqlalchemy
+psycopg[binary]
+uvicorn

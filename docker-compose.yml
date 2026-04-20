@@ -1,0 +1,132 @@
+services:
+  db:
+    image: postgres:16
+    container_name: flare_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-flare_db}
+      POSTGRES_USER: ${POSTGRES_USER:-flare_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-flare_password}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flare_user -d flare_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: flare_minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  createbuckets:
+    image: minio/mc:latest
+    container_name: flare_minio_init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ROOT_USER:-minioadmin} ${MINIO_ROOT_PASSWORD:-minioadmin123} &&
+      mc mb -p local/${MINIO_BUCKET:-solar-artifacts} || true &&
+      mc anonymous set download local/${MINIO_BUCKET:-solar-artifacts} || true
+      "
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    container_name: flare_api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      createbuckets:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./app:/app/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        NEXT_PUBLIC_ARTIFACT_BASE_URL: http://localhost:9000/solar-artifacts
+    container_name: flare_web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      FASTAPI_BASE_URL: http://api:8000
+      NEXT_PUBLIC_ARTIFACT_BASE_URL: http://localhost:9000/solar-artifacts
+    ports:
+      - "3000:3000"
+
+  worker:
+    build:
+      context: .
+      dockerfile: prediction/Dockerfile
+    container_name: flare_worker
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      createbuckets:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+
+  pipeline:
+    build:
+      context: .
+      dockerfile: prediction/Dockerfile.pipeline
+    container_name: flare_pipeline
+    profiles:
+      - manual
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      createbuckets:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+
+volumes:
+  postgres_data:
+  minio_data:

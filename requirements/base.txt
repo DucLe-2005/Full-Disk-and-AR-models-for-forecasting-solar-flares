@@ -1,0 +1,16 @@
+astropy
+captum
+drms
+einops
+matplotlib
+numpy
+opencv-python-headless
+pandas
+Pillow
+prettytable
+python-dotenv
+requests
+scipy
+sunpy
+torch
+torchvision
