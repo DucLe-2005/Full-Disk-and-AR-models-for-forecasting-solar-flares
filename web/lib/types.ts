@@ -39,6 +39,23 @@ export type JobResponse = {
   };
 };
 
+export type QueuedRangeJob = {
+  job_id: string;
+  prediction_hour: string;
+};
+
+export type JobRangeResponse = {
+  status: "queued" | "already_covered" | string;
+  start_prediction_hour: string;
+  end_prediction_hour: string;
+  total_hours: number;
+  queued_count: number;
+  prediction_exists_count: number;
+  job_exists_count: number;
+  returned_jobs_count: number;
+  queued_jobs: QueuedRangeJob[];
+};
+
 export type JobStatusResponse = {
   job_id: string;
   status: "queued" | "running" | "completed" | "failed" | string;

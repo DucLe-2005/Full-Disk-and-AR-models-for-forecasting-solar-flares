@@ -67,6 +67,12 @@ svg {
   margin-bottom: 18px;
 }
 
+.requestPanel {
+  display: grid;
+  min-width: min(760px, 100%);
+  gap: 10px;
+}
+
 .eyebrow {
   margin: 0 0 6px;
   color: var(--amber);
@@ -85,7 +91,6 @@ h1 {
 
 .jobForm {
   display: grid;
-  grid-template-columns: auto minmax(230px, 1fr) auto auto;
   align-items: center;
   gap: 10px;
   padding: 10px;
@@ -93,6 +98,14 @@ h1 {
   border-radius: 8px;
   background: rgba(25, 25, 23, 0.86);
   box-shadow: 0 20px 60px var(--shadow);
+}
+
+.pointForm {
+  grid-template-columns: auto minmax(230px, 1fr) auto auto;
+}
+
+.rangeJobForm {
+  grid-template-columns: auto minmax(190px, 1fr) auto minmax(190px, 1fr) auto;
 }
 
 .jobForm label {
@@ -549,7 +562,8 @@ dd {
     padding: 16px;
   }
 
-  .jobForm {
+  .pointForm,
+  .rangeJobForm {
     grid-template-columns: 1fr auto;
   }
 

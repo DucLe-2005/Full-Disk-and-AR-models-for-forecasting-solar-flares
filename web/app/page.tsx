@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { artifactUrl } from "@/lib/artifacts";
-import type { Heatmap, JobResponse, JobStatusResponse, Prediction } from "@/lib/types";
+import type { Heatmap, JobRangeResponse, JobResponse, JobStatusResponse, Prediction } from "@/lib/types";
 
 type LoadState = "idle" | "loading" | "error";
 
@@ -35,6 +35,10 @@ function clampProbability(value: number) {
 
 function classNameForPrediction(predictedClass: string) {
   return predictedClass.toLowerCase().includes("non") ? "calm" : "alert";
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
 }
 
 function IconRefresh() {
@@ -144,6 +148,8 @@ export default function Page() {
   const [jobState, setJobState] = useState<LoadState>("idle");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [datetime, setDatetime] = useState("2023-04-19T13:00");
+  const [backfillStart, setBackfillStart] = useState("2023-04-19T00:00");
+  const [backfillEnd, setBackfillEnd] = useState("2023-04-19T23:00");
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -333,6 +339,55 @@ export default function Page() {
     }
   }
 
+  async function submitRangeJob(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    stopPolling();
+    setJobState("loading");
+    setStatusMessage(null);
+
+    try {
+      const response = await fetch("/api/jobs", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          start_time: toApiDateTime(backfillStart),
+          end_time: toApiDateTime(backfillEnd)
+        })
+      });
+
+      const body = (await response.json()) as JobRangeResponse & { detail?: string };
+      if (!response.ok) {
+        throw new Error(body.detail ?? `Range job request failed with ${response.status}`);
+      }
+
+      const coveredCount = body.prediction_exists_count + body.job_exists_count;
+      if (body.queued_count === 0) {
+        setStatusMessage(
+          `Range already covered: ${pluralize(body.total_hours, "hour")} from ${formatDateTime(
+            body.start_prediction_hour
+          )} to ${formatDateTime(body.end_prediction_hour)}.`
+        );
+        setJobState("idle");
+        await loadHistory();
+        return;
+      }
+
+      setStatusMessage(
+        `Queued ${pluralize(body.queued_count, "hourly job")} from ${formatDateTime(
+          body.start_prediction_hour
+        )} to ${formatDateTime(body.end_prediction_hour)}. ${pluralize(coveredCount, "hour")} already had data or active jobs.`
+      );
+
+      setJobState("idle");
+      await loadHistory();
+    } catch (error) {
+      setJobState("error");
+      setStatusMessage(error instanceof Error ? error.message : "Could not queue prediction range");
+    }
+  }
+
   async function fetchLatest() {
     const latestHistory = await loadHistory();
     setSelectedHeatmap(0);
@@ -346,22 +401,45 @@ export default function Page() {
           <p className="eyebrow">Hourly HMI flare forecasting</p>
           <h1>Solar Flare Prediction Console</h1>
         </div>
-        <form className="jobForm" onSubmit={submitJob}>
-          <label htmlFor="prediction-time">Point-in-time</label>
-          <input
-            id="prediction-time"
-            type="datetime-local"
-            value={datetime}
-            onChange={(event) => setDatetime(event.target.value)}
-          />
-          <button className="primaryButton" type="submit" disabled={jobState === "loading"}>
-            <IconSend />
-            <span>{jobState === "loading" ? "Queueing" : "Fetch"}</span>
-          </button>
-          <button className="iconButton" type="button" onClick={() => void fetchLatest()} title="Fetch latest">
-            <IconRefresh />
-          </button>
-        </form>
+        <div className="requestPanel">
+          <form className="jobForm pointForm" onSubmit={submitJob}>
+            <label htmlFor="prediction-time">Point-in-time</label>
+            <input
+              id="prediction-time"
+              type="datetime-local"
+              value={datetime}
+              onChange={(event) => setDatetime(event.target.value)}
+            />
+            <button className="primaryButton" type="submit" disabled={jobState === "loading"}>
+              <IconSend />
+              <span>{jobState === "loading" ? "Queueing" : "Fetch"}</span>
+            </button>
+            <button className="iconButton" type="button" onClick={() => void fetchLatest()} title="Fetch latest">
+              <IconRefresh />
+            </button>
+          </form>
+
+          <form className="jobForm rangeJobForm" onSubmit={submitRangeJob}>
+            <label htmlFor="backfill-start">Backfill from</label>
+            <input
+              id="backfill-start"
+              type="datetime-local"
+              value={backfillStart}
+              onChange={(event) => setBackfillStart(event.target.value)}
+            />
+            <label htmlFor="backfill-end">To</label>
+            <input
+              id="backfill-end"
+              type="datetime-local"
+              value={backfillEnd}
+              onChange={(event) => setBackfillEnd(event.target.value)}
+            />
+            <button className="primaryButton" type="submit" disabled={jobState === "loading"}>
+              <IconDatabase />
+              <span>Queue range</span>
+            </button>
+          </form>
+        </div>
       </section>
 
       {statusMessage ? (

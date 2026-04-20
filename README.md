@@ -179,6 +179,7 @@ FastAPI exposes:
 
 - `GET /health`: Database health check.
 - `POST /predictions/jobs`: Create or reuse a prediction job.
+- `POST /predictions/jobs/range`: Queue one prediction job per hour between `start_time` and `end_time`.
 - `GET /predictions/jobs/{job_id}`: Read queued/running/completed/failed job status.
 - `GET /history/`: List saved prediction records.
 
@@ -190,6 +191,8 @@ When `POST /predictions/jobs` receives a requested datetime, the backend:
 4. If a prediction already exists, returns `prediction_exists`.
 5. If a queued or running job already exists for that hour, returns `job_exists`.
 6. Otherwise inserts a `queued` row into `pipeline_jobs`.
+
+When `POST /predictions/jobs/range` receives `start_time` and `end_time`, the backend normalizes both values to hourly boundaries, walks every hour inclusively, skips hours that already have a saved prediction, skips hours that already have a queued/running job, and inserts queued jobs for the remaining hours. This is the preferred way to backfill large ranges such as 2020 through 2026.
 
 ## Database Tables
 
@@ -308,6 +311,7 @@ The frontend is a Next.js app in `web/`.
 Capabilities:
 
 - Submit a point-in-time prediction request.
+- Submit a range backfill request that queues every hour between start and end.
 - Show waiting state while the worker runs.
 - Poll job status until completion or failure.
 - Show no-image-within-12-minutes errors from the worker.
