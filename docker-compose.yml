@@ -108,6 +108,9 @@ services:
         condition: service_completed_successfully
     env_file:
       - .env
+    volumes:
+      - ./prediction/modeling/full_disk/trained_models:/app/prediction/modeling/full_disk/trained_models:ro
+      - ./prediction/modeling/active_region/trained_models:/app/prediction/modeling/active_region/trained_models:ro
 
   pipeline:
     build:
@@ -126,6 +129,9 @@ services:
         condition: service_completed_successfully
     env_file:
       - .env
+    volumes:
+      - ./prediction/modeling/full_disk/trained_models:/app/prediction/modeling/full_disk/trained_models:ro
+      - ./prediction/modeling/active_region/trained_models:/app/prediction/modeling/active_region/trained_models:ro
 
 volumes:
   postgres_data:

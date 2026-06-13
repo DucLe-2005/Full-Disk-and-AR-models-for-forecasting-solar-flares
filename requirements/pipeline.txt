@@ -1,2 +1,18 @@
 -r base.txt
-streamlit
+astropy
+captum
+drms
+einops
+matplotlib
+numpy
+opencv-python-headless
+pandas
+Pillow
+prettytable
+python-dotenv
+requests
+scikit-learn
+scipy
+sunpy
+torch
+torchvision

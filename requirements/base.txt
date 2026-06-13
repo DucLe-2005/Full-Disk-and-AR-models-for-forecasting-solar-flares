@@ -1,16 +1,3 @@
-astropy
-captum
-drms
-einops
-matplotlib
-numpy
-opencv-python-headless
-pandas
-Pillow
-prettytable
-python-dotenv
-requests
-scipy
-sunpy
-torch
-torchvision
+# Shared dependencies for both API-only and prediction images.
+# Keep this file small; service-specific dependencies belong in api.txt or pipeline.txt.
+pycparser==2.22

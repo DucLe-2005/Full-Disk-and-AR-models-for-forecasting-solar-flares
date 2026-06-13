@@ -13,3 +13,4 @@ web/node_modules/
 web/*.log
 data/
 models/
+prediction/modeling/**/trained_models/

@@ -29,6 +29,11 @@ web/
 prediction/
   worker/              Polling worker entrypoint
   pipeline/            Pipeline orchestration and stages
+    stages/
+      attribution.py       Guided Grad-CAM, Integrated Gradients, DeepLiftShap, consensus map
+      region_proposal.py   Canny/DBSCAN/convex-hull proposal and final overlay
+      crop_regions.py      Fixed-size active-region crop extraction and padding
+      ar_predict.py        Active-region crop model inference
   modeling/            Model code and trained weights
   download_mag/        FITS/JP2 download and preprocessing helpers
   Dockerfile           Worker container
@@ -145,6 +150,21 @@ Run detached:
 docker compose up --build -d
 ```
 
+Rebuild after Python dependency or pipeline code changes:
+
+```powershell
+docker compose down
+docker compose build --no-cache api worker web
+docker compose up -d
+```
+
+For worker-only pipeline changes:
+
+```powershell
+docker compose build --no-cache worker
+docker compose up -d worker
+```
+
 View logs:
 
 ```powershell
@@ -172,6 +192,18 @@ docker compose --profile manual run --rm pipeline --helioviewer-date "2023-04-19
 ```
 
 The normal application path does not use the manual pipeline service. It uses the `worker` service.
+
+Queue the historical hourly backfill after the stack is running:
+
+```powershell
+docker compose exec api python -m app.scripts.backfill_predictions
+```
+
+By default this queues every hour from `2020-01-01 00:00:00` through `2025-12-31 23:00:00`. It reuses the backend job service, so existing predictions and already queued/running jobs are skipped. To queue a different inclusive range:
+
+```powershell
+docker compose exec api python -m app.scripts.backfill_predictions --start-time "2020-01-01" --end-time "2025-12-31"
+```
 
 ## Backend API
 
@@ -207,10 +239,13 @@ Main prediction table: `predictions`
 - `global_flare_probability`
 - `predicted_class`
 - `localized_probabilities`
-- `jp2_object_path`
 - `full_disk_image_path`
 - `active_regions`
 - `heatmaps`
+
+`active_regions` is JSON metadata for each proposed crop. It includes localized model probability, crop image object path, proposal scores, original/resized bounding boxes, polygon coordinates, crop box coordinates, crop padding, and raw per-model AR predictions.
+
+`heatmaps` is retained for schema compatibility but is empty in the default pipeline. The worker only uploads the full-disk JPG and active-region crop JPGs.
 
 Job table: `pipeline_jobs`
 
@@ -254,40 +289,50 @@ Pipeline stages:
 1. Parse requested Helioviewer datetime.
 2. Download an HMI JP2 magnetogram from Helioviewer.
 3. Reject the request if the closest available magnetogram is more than 12 minutes before or after the requested time.
-4. Convert JP2 to full-disk JPG.
-5. Run the 4-fold full-disk classifier and average flare probabilities.
+4. Convert JP2 to full-disk JPG without resizing.
+5. Run the 4-fold full-disk classifier on grayscale input and average flare probabilities.
 6. Select one full-disk fold for attribution.
-7. Generate and save heatmaps:
+7. Generate attribution maps in memory from [prediction/pipeline/stages/attribution.py](prediction/pipeline/stages/attribution.py):
    - Guided Grad-CAM
    - Integrated Gradients
    - DeepLiftShap
-   - Occlusion
-8. Propose active-region boxes from attribution maps.
-9. Crop active regions from the original full-disk image.
-10. Resize crops to 512x512.
-11. Run active-region model predictions.
-12. Return artifact paths and prediction metadata to the worker.
+8. Combine the three attribution maps into one consensus heatmap.
+9. Propose active regions in [prediction/pipeline/stages/region_proposal.py](prediction/pipeline/stages/region_proposal.py):
+   - convert consensus heatmap to grayscale `0-255`
+   - run Canny edge detection
+   - cluster edge pixels with DBSCAN
+   - convert clusters to convex hull polygons
+   - apply east/west buffering
+   - re-cluster buffered regions
+   - rank the final polygons by mean consensus score
+10. Build the final region proposals from the grayscale consensus heatmap.
+11. Map final polygons and bounding boxes from resized heatmap coordinates back to original full-disk coordinates.
+12. Build a fixed-size square crop box around each proposed region center.
+13. Crop active regions from the original JP2 image with zero padding near borders.
+14. Resize/save crops to `512x512`.
+15. Run active-region model predictions.
+16. Return artifact paths and prediction metadata to the worker.
 
-Heatmaps are saved as images only. The pipeline uses a non-interactive Matplotlib backend and does not open visual windows.
+Heatmaps are used for proposal scoring in memory. They are not saved or uploaded in the default worker path. The pipeline uses a non-interactive Matplotlib backend and does not open visual windows.
+
+The final proposal polygon is the localization output. The active-region crop is the model input: a fixed-size square patch centered on the proposed region and saved under `active_regions/`.
 
 ## Artifact Storage
 
-Artifacts are generated locally inside the worker container under:
+Saved artifacts are generated locally inside the worker container under:
 
 ```text
-data/YYYY/MM/DD/jp2/
 data/YYYY/MM/DD/full_disk/
-data/YYYY/MM/DD/heat_maps/
 data/YYYY/MM/DD/active_regions/
 ```
+
+The JP2 file is still downloaded as an intermediate because it is the source image used for conversion and crop extraction, but it is not uploaded or stored in the prediction record. During upload, the worker filters active-region crop files by the current image stem so a prediction does not attach crops from another timestamp on the same day.
 
 The worker uploads them to MinIO under:
 
 ```text
-predictions/{prediction_id}/jp2/{filename}
-predictions/{prediction_id}/full_disk/{filename}
-predictions/{prediction_id}/heat_maps/{filename}
-predictions/{prediction_id}/active_regions/{filename}
+predictions/YYYY/MM/DD/HH/full_disk/{filename}
+predictions/YYYY/MM/DD/HH/active_regions/{filename}
 ```
 
 The database stores MinIO object paths, not local container paths.
@@ -301,7 +346,7 @@ NEXT_PUBLIC_ARTIFACT_BASE_URL + "/" + object_path
 For Docker Compose, that becomes:
 
 ```text
-http://localhost:9000/solar-artifacts/predictions/{prediction_id}/...
+http://localhost:9000/solar-artifacts/predictions/YYYY/MM/DD/HH/...
 ```
 
 ## Frontend
@@ -319,7 +364,6 @@ Capabilities:
 - Filter history by datetime range.
 - Display global probability.
 - Display full-disk image.
-- Display heatmaps.
 - Display active-region crops and localized probabilities.
 
 Run locally outside Docker:
