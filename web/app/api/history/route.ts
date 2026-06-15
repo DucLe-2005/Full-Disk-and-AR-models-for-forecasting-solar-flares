@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 
 import { fetchPredictionHistory } from "@/lib/api";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const history = await fetchPredictionHistory();
+    const history = await fetchPredictionHistory(new URL(request.url).searchParams.toString());
     return NextResponse.json(history);
   } catch (error) {
     return NextResponse.json(

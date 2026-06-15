@@ -7,10 +7,5 @@ export function artifactUrl(path?: string | null): string | null {
     return path;
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_ARTIFACT_BASE_URL;
-  if (!baseUrl) {
-    return null;
-  }
-
-  return `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
+  return `/api/artifacts?key=${encodeURIComponent(path.replace(/^\//, ""))}`;
 }

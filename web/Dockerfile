@@ -11,9 +11,6 @@ WORKDIR /app
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-ARG NEXT_PUBLIC_ARTIFACT_BASE_URL=http://localhost:9000/solar-artifacts
-ENV NEXT_PUBLIC_ARTIFACT_BASE_URL=${NEXT_PUBLIC_ARTIFACT_BASE_URL}
-
 COPY --from=deps /app/node_modules ./node_modules
 COPY web ./
 RUN npm run build

@@ -1,9 +1,10 @@
-import type { Prediction } from "@/lib/types";
+import type { PredictionHistoryPage } from "@/lib/types";
 
 const backendBaseUrl = process.env.FASTAPI_BASE_URL ?? "http://localhost:8000";
 
-export async function fetchPredictionHistory(): Promise<Prediction[]> {
-  const response = await fetch(`${backendBaseUrl}/history/`, {
+export async function fetchPredictionHistory(query: string): Promise<PredictionHistoryPage> {
+  const suffix = query ? `?${query}` : "";
+  const response = await fetch(`${backendBaseUrl}/history/${suffix}`, {
     cache: "no-store"
   });
 

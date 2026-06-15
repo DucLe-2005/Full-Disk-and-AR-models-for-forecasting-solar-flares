@@ -1,435 +1,177 @@
 # Solar Flare Forecasting
 
-This project forecasts solar flare risk from full-disk HMI magnetogram imagery. It has three application areas:
+Hourly solar-flare prediction from full-disk HMI magnetograms. The stack includes:
 
-- `app/`: FastAPI backend for health checks, job creation, job status, prediction history, database models, and MinIO upload helpers.
-- `web/`: Next.js frontend dashboard for requesting predictions, polling job status, browsing history, and viewing saved artifacts.
-- `prediction/`: Long-running prediction worker, pipeline stages, model definitions, trained weights, and magnetogram download/preprocessing helpers.
+- `app/`: FastAPI API, Postgres repositories, job services, and MinIO helpers.
+- `prediction/`: queue worker, prediction pipeline, models, and trained weights.
+- `web/`: Next.js dashboard for submitting jobs and viewing results.
 
-The default production-like workflow is Docker Compose: the frontend queues a prediction job through FastAPI, the worker polls Postgres for queued jobs, the prediction pipeline generates artifacts, artifacts are uploaded to MinIO, and prediction metadata is saved in Postgres.
+## Quick Start
 
-## Project Structure
-
-```text
-app/
-  api/                 FastAPI routers, schemas, repositories
-  core/                Settings, database session, schema creation, MinIO storage
-  models/              SQLAlchemy models for predictions and pipeline jobs
-  services/            Backend service layer
-  Dockerfile           Backend container
-  main.py              FastAPI app entrypoint
-
-web/
-  app/                 Next.js app routes and dashboard page
-  lib/                 Frontend API clients, artifact helpers, TypeScript types
-  public/              Static frontend assets
-  Dockerfile           Frontend container
-  package.json         Frontend dependencies and scripts
-
-prediction/
-  worker/              Polling worker entrypoint
-  pipeline/            Pipeline orchestration and stages
-    stages/
-      attribution.py       Guided Grad-CAM, Integrated Gradients, DeepLiftShap, consensus map
-      region_proposal.py   Canny/DBSCAN/convex-hull proposal and final overlay
-      crop_regions.py      Fixed-size active-region crop extraction and padding
-      ar_predict.py        Active-region crop model inference
-  modeling/            Model code and trained weights
-  download_mag/        FITS/JP2 download and preprocessing helpers
-  Dockerfile           Worker container
-  Dockerfile.pipeline  Manual one-shot pipeline container
-
-requirements/          Shared Python dependency include files
-scripts/               Utility scripts and SQL migrations
-data/                  Local generated artifacts; not a production artifact store
-docker-compose.yml     Full local stack
-```
-
-## Services
-
-Docker Compose starts these services:
-
-- `db`: Postgres 16 database.
-- `minio`: S3-compatible artifact storage.
-- `createbuckets`: Initializes the MinIO bucket and enables browser downloads.
-- `api`: FastAPI backend on `http://localhost:8000`.
-- `web`: Next.js frontend on `http://localhost:3000`.
-- `worker`: Long-running prediction worker that polls `pipeline_jobs`.
-- `pipeline`: Manual one-shot pipeline container under the `manual` profile.
-
-## Environment Variables
-
-Create a root `.env` file before running Docker Compose. Use [.env.example](.env.example) as the template.
-
-```env
-JSOC_EMAIL=your_jsoc_email@example.com
-DEFAULT_HELIOVIEWER_DATE=
-
-POSTGRES_DB=flare_db
-POSTGRES_USER=flare_user
-POSTGRES_PASSWORD=flare_password
-DATABASE_URL=postgresql+psycopg://flare_user:flare_password@db:5432/flare_db
-
-MINIO_ROOT_USER=minioadmin
-MINIO_ROOT_PASSWORD=minioadmin123
-MINIO_ENDPOINT=minio:9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin123
-MINIO_BUCKET=solar-artifacts
-MINIO_SECURE=false
-```
-
-Variable notes:
-
-- `JSOC_EMAIL`: Registered JSOC email. The current default pipeline uses Helioviewer JP2 downloads, but JSOC support code still uses this when the FITS flow is enabled.
-- `DEFAULT_HELIOVIEWER_DATE`: Optional fallback date for worker jobs that do not include `helioviewer_date`.
-- `DATABASE_URL`: Used by FastAPI and the worker inside Docker. The hostname is `db`, the Compose service name.
-- `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`: Used by the Postgres container.
-- `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`: Used by the MinIO container and bucket initialization.
-- `MINIO_ENDPOINT`: Used by FastAPI and the worker inside Docker. The hostname is `minio`, the Compose service name.
-- `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`, `MINIO_SECURE`: Used when uploading artifacts to MinIO.
-
-For local frontend development outside Docker, copy [web/.env.local.example](web/.env.local.example) to `web/.env.local`:
-
-```env
-FASTAPI_BASE_URL=http://localhost:8000
-NEXT_PUBLIC_ARTIFACT_BASE_URL=http://localhost:9000/solar-artifacts
-```
-
-Inside Docker Compose, `FASTAPI_BASE_URL` is set to `http://api:8000` because the Next.js server route talks to FastAPI over the Compose network. `NEXT_PUBLIC_ARTIFACT_BASE_URL` stays `http://localhost:9000/solar-artifacts` because the browser loads images through the host-exposed MinIO port.
-
-## Setup
-
-1. Confirm model weights exist:
+Confirm model weights exist:
 
 ```text
 prediction/modeling/full_disk/trained_models/
 prediction/modeling/active_region/trained_models/
 ```
 
-2. Create the root `.env`:
+Create the environment file and start the stack:
 
 ```powershell
 Copy-Item .env.example .env
-```
-
-3. Edit `.env` and set your `JSOC_EMAIL` if needed.
-
-4. Build and start the stack:
-
-```powershell
-docker compose up --build
-```
-
-5. Open the frontend:
-
-```text
-http://localhost:3000
-```
-
-Useful service URLs:
-
-- Frontend: `http://localhost:3000`
-- FastAPI: `http://localhost:8000`
-- FastAPI health: `http://localhost:8000/health`
-- MinIO API: `http://localhost:9000`
-- MinIO console: `http://localhost:9001`
-- Postgres: `localhost:5432`
-
-## Running With Docker Compose
-
-Start everything:
-
-```powershell
-docker compose up --build
-```
-
-Run detached:
-
-```powershell
 docker compose up --build -d
 ```
 
-Rebuild after Python dependency or pipeline code changes:
+Services:
+
+- Dashboard: `http://localhost:3000`
+- API: `http://localhost:8000`
+- API health: `http://localhost:8000/health`
+- MinIO API: `http://localhost:9000`
+- MinIO console: `http://localhost:9001`
+
+The model weights are mounted read-only into the worker and manual pipeline containers. They are excluded from the Docker build context to keep rebuilds fast.
+
+## Common Commands
 
 ```powershell
-docker compose down
-docker compose build --no-cache api worker web
-docker compose up -d
-```
-
-For worker-only pipeline changes:
-
-```powershell
-docker compose build --no-cache worker
-docker compose up -d worker
-```
-
-View logs:
-
-```powershell
-docker compose logs -f api
+# Logs
 docker compose logs -f worker
+docker compose logs -f api
 docker compose logs -f web
-```
 
-Stop services:
+# Rebuild one service
+docker compose build worker
+docker compose up -d worker
 
-```powershell
+# Stop the stack
 docker compose down
-```
 
-Stop services and delete database/object-store volumes:
-
-```powershell
+# Stop and delete database/object-store volumes
 docker compose down -v
 ```
 
-Run the manual one-shot pipeline container:
+Run one pipeline manually:
 
 ```powershell
 docker compose --profile manual run --rm pipeline --helioviewer-date "2023-04-19 13:00:00"
 ```
 
-The normal application path does not use the manual pipeline service. It uses the `worker` service.
+## Backfill
 
-Queue the historical hourly backfill after the stack is running:
+Queue hourly jobs from `2020-01-01 00:00:00` through `2025-12-31 23:00:00`:
 
 ```powershell
 docker compose exec api python -m app.scripts.backfill_predictions
 ```
 
-By default this queues every hour from `2020-01-01 00:00:00` through `2025-12-31 23:00:00`. It reuses the backend job service, so existing predictions and already queued/running jobs are skipped. To queue a different inclusive range:
+Custom inclusive range:
 
 ```powershell
-docker compose exec api python -m app.scripts.backfill_predictions --start-time "2020-01-01" --end-time "2025-12-31"
+docker compose exec api python -m app.scripts.backfill_predictions `
+  --start-time "2020-01-01" `
+  --end-time "2025-12-31"
 ```
 
-## Backend API
+The service skips hours with an existing prediction or an already queued/running job. The worker processes the resulting queue normally.
 
-FastAPI exposes:
+## Job Flow
 
-- `GET /health`: Database health check.
-- `POST /predictions/jobs`: Create or reuse a prediction job.
-- `POST /predictions/jobs/range`: Queue one prediction job per hour between `start_time` and `end_time`.
-- `GET /predictions/jobs/{job_id}`: Read queued/running/completed/failed job status.
-- `GET /history/`: List saved prediction records.
+1. The API normalizes requested timestamps to the whole hour.
+2. It deduplicates by requested hour and inserts a queued job.
+3. The worker polls Postgres and claims the oldest queued job.
+4. The pipeline requests the closest Helioviewer image.
+5. The image is accepted only when its timestamp is within `+/-12` minutes of the requested hour; otherwise the job is marked failed.
+6. The worker uploads artifacts to MinIO, saves prediction metadata, and marks the job completed.
 
-When `POST /predictions/jobs` receives a requested datetime, the backend:
+The worker processes existing jobs only. It does not currently enqueue a new job automatically at each hour.
 
-1. Parses `helioviewer_date`.
-2. Normalizes it to the prediction hour, for example `2023-04-19 13:12:00` becomes `2023-04-19 13:00:00`.
-3. Checks `predictions.prediction_hour`.
-4. If a prediction already exists, returns `prediction_exists`.
-5. If a queued or running job already exists for that hour, returns `job_exists`.
-6. Otherwise inserts a `queued` row into `pipeline_jobs`.
+## API
 
-When `POST /predictions/jobs/range` receives `start_time` and `end_time`, the backend normalizes both values to hourly boundaries, walks every hour inclusively, skips hours that already have a saved prediction, skips hours that already have a queued/running job, and inserts queued jobs for the remaining hours. This is the preferred way to backfill large ranges such as 2020 through 2026.
+- `GET /health`
+- `POST /predictions/jobs`
+- `POST /predictions/jobs/range`
+- `GET /predictions/jobs/{job_id}`
+- `GET /history/`
 
-## Database Tables
+## Pipeline
 
-Fresh databases are created automatically by both the API and worker through SQLAlchemy `create_all`.
+The pipeline in `prediction/pipeline/run_pipeline.py`:
 
-Main prediction table: `predictions`
+1. Downloads an HMI JP2 and converts it to a full-disk JPG.
+2. Runs the four-fold full-disk classifier.
+3. Generates Guided Grad-CAM, Integrated Gradients, and DeepLiftShap maps in memory.
+4. Combines them into a consensus heatmap.
+5. Runs Canny, DBSCAN, convex-hull buffering, solar-disk masking, and reclustering.
+6. Saves the buffered solar mask.
+7. Produces padded fixed-size `512x512` active-region crops.
+8. Runs active-region model inference.
 
-- `id`
-- `created_at`
-- `date`
-- `prediction_hour`, unique and indexed
-- `global_flare_probability`
-- `predicted_class`
-- `localized_probabilities`
-- `full_disk_image_path`
-- `active_regions`
-- `heatmaps`
-
-`active_regions` is JSON metadata for each proposed crop. It includes localized model probability, crop image object path, proposal scores, original/resized bounding boxes, polygon coordinates, crop box coordinates, crop padding, and raw per-model AR predictions.
-
-`heatmaps` is retained for schema compatibility but is empty in the default pipeline. The worker only uploads the full-disk JPG and active-region crop JPGs.
-
-Job table: `pipeline_jobs`
-
-- `id`
-- `status`: `queued`, `running`, `completed`, or `failed`
-- `created_at`
-- `requested_prediction_hour`
-- `started_at`
-- `finished_at`
-- `payload`
-- `prediction_id`
-- `error_message`
-
-If a worker fails because no Helioviewer magnetogram is found within the allowed time window, the error message is saved in `pipeline_jobs.error_message` and shown in the frontend.
-
-## Worker And Job Flow
-
-The worker runs [prediction/worker/run_worker.py](prediction/worker/run_worker.py).
-
-Loop behavior:
-
-1. Creates database tables if this is the first startup.
-2. Polls `pipeline_jobs` every few seconds.
-3. Selects the oldest `queued` job.
-4. Marks the job `running`.
-5. Checks again whether a prediction already exists for the requested hour.
-6. Runs the prediction pipeline.
-7. Uploads artifacts to MinIO.
-8. Saves a row in `predictions`.
-9. Marks the job `completed` with `prediction_id`.
-10. If any error occurs, marks the job `failed` and saves `error_message`.
-
-The frontend polls `GET /predictions/jobs/{job_id}` through a Next.js proxy while a job is queued or running. It also refreshes history during polling. When the prediction appears in `GET /history/`, the dashboard selects it automatically.
-
-## Prediction Pipeline
-
-The main pipeline entrypoint is [prediction/pipeline/run_pipeline.py](prediction/pipeline/run_pipeline.py).
-
-Pipeline stages:
-
-1. Parse requested Helioviewer datetime.
-2. Download an HMI JP2 magnetogram from Helioviewer.
-3. Reject the request if the closest available magnetogram is more than 12 minutes before or after the requested time.
-4. Convert JP2 to full-disk JPG without resizing.
-5. Run the 4-fold full-disk classifier on grayscale input and average flare probabilities.
-6. Select one full-disk fold for attribution.
-7. Generate attribution maps in memory from [prediction/pipeline/stages/attribution.py](prediction/pipeline/stages/attribution.py):
-   - Guided Grad-CAM
-   - Integrated Gradients
-   - DeepLiftShap
-8. Combine the three attribution maps into one consensus heatmap.
-9. Propose active regions in [prediction/pipeline/stages/region_proposal.py](prediction/pipeline/stages/region_proposal.py):
-   - convert consensus heatmap to grayscale `0-255`
-   - run Canny edge detection
-   - cluster edge pixels with DBSCAN
-   - convert clusters to convex hull polygons
-   - apply east/west buffering
-   - re-cluster buffered regions
-   - rank the final polygons by mean consensus score
-10. Build the final region proposals from the grayscale consensus heatmap.
-11. Map final polygons and bounding boxes from resized heatmap coordinates back to original full-disk coordinates.
-12. Build a fixed-size square crop box around each proposed region center.
-13. Crop active regions from the original JP2 image with zero padding near borders.
-14. Resize/save crops to `512x512`.
-15. Run active-region model predictions.
-16. Return artifact paths and prediction metadata to the worker.
-
-Heatmaps are used for proposal scoring in memory. They are not saved or uploaded in the default worker path. The pipeline uses a non-interactive Matplotlib backend and does not open visual windows.
-
-The final proposal polygon is the localization output. The active-region crop is the model input: a fixed-size square patch centered on the proposed region and saved under `active_regions/`.
+Every final reclustered hull is retained as an active-region proposal. Consensus and area-weighted scores are stored as metadata but do not filter or rank the hulls.
 
 ## Artifact Storage
 
-Saved artifacts are generated locally inside the worker container under:
+Local worker artifacts:
 
 ```text
 data/YYYY/MM/DD/full_disk/
+data/YYYY/MM/DD/heat_maps/
 data/YYYY/MM/DD/active_regions/
 ```
 
-The JP2 file is still downloaded as an intermediate because it is the source image used for conversion and crop extraction, but it is not uploaded or stored in the prediction record. During upload, the worker filters active-region crop files by the current image stem so a prediction does not attach crops from another timestamp on the same day.
-
-The worker uploads them to MinIO under:
+MinIO object keys:
 
 ```text
 predictions/YYYY/MM/DD/HH/full_disk/{filename}
+predictions/YYYY/MM/DD/HH/heat_maps/{buffered-mask-filename}
 predictions/YYYY/MM/DD/HH/active_regions/{filename}
 ```
 
-The database stores MinIO object paths, not local container paths.
-
-The frontend builds browser image URLs from:
+The JP2 is an intermediate input and is not uploaded. The database stores MinIO object keys. The frontend resolves them as:
 
 ```text
-NEXT_PUBLIC_ARTIFACT_BASE_URL + "/" + object_path
+NEXT_PUBLIC_ARTIFACT_BASE_URL + "/" + object_key
 ```
 
-For Docker Compose, that becomes:
+With the default Compose configuration:
 
 ```text
 http://localhost:9000/solar-artifacts/predictions/YYYY/MM/DD/HH/...
 ```
 
-## Frontend
+## Environment
 
-The frontend is a Next.js app in `web/`.
+The main settings are defined in `.env.example`:
 
-Capabilities:
+- `DATABASE_URL`: Postgres connection used by API and worker.
+- `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`.
+- `JSOC_EMAIL`: retained for optional JSOC support.
+- `DEFAULT_HELIOVIEWER_DATE`: fallback for jobs missing a requested date.
 
-- Submit a point-in-time prediction request.
-- Submit a range backfill request that queues every hour between start and end.
-- Show waiting state while the worker runs.
-- Poll job status until completion or failure.
-- Show no-image-within-12-minutes errors from the worker.
-- Browse past prediction history.
-- Filter history by datetime range.
-- Display global probability.
-- Display full-disk image.
-- Display active-region crops and localized probabilities.
+Compose uses service hostnames such as `db` and `minio`. Local processes outside Docker should use reachable hostnames such as `localhost`.
 
-Run locally outside Docker:
+## Local Development
 
 ```powershell
+# Python dependencies
+pip install -r requirements.txt
+
+# API
+uvicorn app.main:app --reload
+
+# Worker
+python -m prediction.worker.run_worker
+
+# Frontend
 cd web
 npm install
 Copy-Item .env.local.example .env.local
 npm run dev
 ```
 
-## Local Python Development
-
-Install all Python dependencies:
-
-```powershell
-pip install -r requirements/requirements.txt
-```
-
-Run FastAPI locally:
-
-```powershell
-uvicorn app.main:app --reload
-```
-
-Run the worker locally:
-
-```powershell
-python -m prediction.worker.run_worker
-```
-
-Run the pipeline directly:
-
-```powershell
-python -m prediction.pipeline.run_pipeline --helioviewer-date "2023-04-19 13:00:00"
-```
-
-For local Python runs outside Docker, use hostnames reachable from your machine in `DATABASE_URL` and `MINIO_ENDPOINT`, for example `localhost:5432` and `localhost:9000` instead of Compose service names `db` and `minio`.
-
 ## Troubleshooting
 
-Rebuild after code or dependency changes:
-
-```powershell
-docker compose build --no-cache api worker web
-docker compose up
-```
-
-If the worker log still references `/app/worker/run_worker.py`, the old worker image is running. Rebuild the worker:
-
-```powershell
-docker compose build --no-cache worker
-docker compose up worker
-```
-
-If the frontend waits forever, check worker logs:
-
-```powershell
-docker compose logs -f worker
-```
-
-If images do not display, confirm MinIO is reachable at `http://localhost:9000` and that `NEXT_PUBLIC_ARTIFACT_BASE_URL` points to `http://localhost:9000/solar-artifacts`.
-
-If you need a clean first-start database:
-
-```powershell
-docker compose down -v
-docker compose up --build
-```
+- Worker failures: `docker compose logs -f worker`
+- Missing images: verify MinIO at `http://localhost:9000` and `NEXT_PUBLIC_ARTIFACT_BASE_URL=http://localhost:9000/solar-artifacts`.
+- Stale service image: rebuild only that service with `docker compose build <service>`.
+- Clean reset: `docker compose down -v` followed by `docker compose up --build`.

@@ -237,6 +237,42 @@ h1 {
   padding: 8px 4px;
 }
 
+.pagination {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) 88px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.pagination span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+.pagination button {
+  height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-alt);
+  color: var(--text);
+  font-weight: 700;
+}
+
+.pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.catalogPanel > .pagination {
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
 .historyItem {
   position: relative;
   display: grid;

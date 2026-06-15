@@ -20,7 +20,16 @@ export type Prediction = {
   predicted_class: string;
   jp2_image_url?: string | null;
   full_disk_image_url?: string | null;
+  buffered_mask_url?: string | null;
   active_regions: ActiveRegion[];
   heatmaps: Heatmap[];
   raw_active_regions: Record<string, unknown>[];
+};
+
+export type PredictionHistoryPage = {
+  items: Prediction[];
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
 };

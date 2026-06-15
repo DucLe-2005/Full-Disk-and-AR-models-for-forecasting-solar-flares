@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { artifactUrl } from "@/lib/artifacts";
-import type { Heatmap, Prediction } from "@/lib/types";
+import type { Prediction, PredictionHistoryPage } from "@/lib/types";
 
 type LoadState = "idle" | "loading" | "error";
 type ViewMode = "detail" | "catalog";
 type ClassFilter = "all" | "flare" | "non-flare";
+const PAGE_SIZE = 10;
 
 function parseDate(value: string) {
   const date = new Date(value);
@@ -49,14 +50,6 @@ function clampProbability(value: number) {
 
 function classNameForPrediction(predictedClass: string) {
   return predictedClass.toLowerCase().includes("non") ? "calm" : "alert";
-}
-
-function matchesClassFilter(prediction: Prediction, filter: ClassFilter) {
-  if (filter === "all") {
-    return true;
-  }
-  const isNonFlare = prediction.predicted_class.toLowerCase().includes("non");
-  return filter === "non-flare" ? isNonFlare : !isNonFlare;
 }
 
 function IconRefresh() {
@@ -203,10 +196,38 @@ function PredictionCard({
   );
 }
 
+function PaginationControls({
+  page,
+  totalPages,
+  totalRecords,
+  onPageChange
+}: {
+  page: number;
+  totalPages: number;
+  totalRecords: number;
+  onPageChange: (nextPage: number) => void;
+}) {
+  const firstRecord = totalRecords === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const lastRecord = Math.min(page * PAGE_SIZE, totalRecords);
+
+  return (
+    <nav className="pagination" aria-label="Prediction history pages">
+      <button type="button" disabled={page <= 1} onClick={() => onPageChange(page - 1)}>
+        Previous
+      </button>
+      <span>
+        {firstRecord}-{lastRecord} of {totalRecords}
+      </span>
+      <button type="button" disabled={page >= totalPages} onClick={() => onPageChange(page + 1)}>
+        Next
+      </button>
+    </nav>
+  );
+}
+
 export default function Page() {
   const [history, setHistory] = useState<Prediction[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedHeatmap, setSelectedHeatmap] = useState(0);
   const [historyState, setHistoryState] = useState<LoadState>("idle");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [rangeStart, setRangeStart] = useState("");
@@ -214,13 +235,30 @@ export default function Page() {
   const [viewMode, setViewMode] = useState<ViewMode>("detail");
   const [classFilter, setClassFilter] = useState<ClassFilter>("all");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
 
-  async function loadHistory() {
+  async function loadHistory(requestedPage = page) {
     setHistoryState("loading");
     setStatusMessage(null);
 
     try {
-      const response = await fetch("/api/history", {
+      const params = new URLSearchParams({
+        page: String(requestedPage),
+        page_size: String(PAGE_SIZE)
+      });
+      if (rangeStart) {
+        params.set("start_time", rangeStart);
+      }
+      if (rangeEnd) {
+        params.set("end_time", rangeEnd);
+      }
+      if (classFilter !== "all") {
+        params.set("predicted_class", classFilter === "flare" ? "1" : "0");
+      }
+
+      const response = await fetch(`/api/history?${params.toString()}`, {
         cache: "no-store"
       });
 
@@ -229,17 +267,20 @@ export default function Page() {
         throw new Error(body.detail ?? `History request failed with ${response.status}`);
       }
 
-      const data = (await response.json()) as Prediction[];
-      setHistory(data);
+      const data = (await response.json()) as PredictionHistoryPage;
+      setHistory(data.items);
+      setPage(data.page);
+      setTotalRecords(data.total);
+      setTotalPages(data.total_pages);
       setLastLoadedAt(new Date().toISOString());
       setSelectedId((current) => {
-        if (current && data.some((prediction) => prediction.prediction_id === current)) {
+        if (current && data.items.some((prediction) => prediction.prediction_id === current)) {
           return current;
         }
-        return data[0]?.prediction_id ?? null;
+        return data.items[0]?.prediction_id ?? null;
       });
       setHistoryState("idle");
-      return data;
+      return data.items;
     } catch (error) {
       setHistoryState("error");
       const message = error instanceof Error ? error.message : "Could not load history";
@@ -249,42 +290,19 @@ export default function Page() {
   }
 
   useEffect(() => {
-    void loadHistory();
-  }, []);
-
-  const filteredHistory = useMemo(() => {
-    const start = rangeStart ? new Date(rangeStart).getTime() : null;
-    const end = rangeEnd ? new Date(rangeEnd).getTime() : null;
-
-    return history.filter((prediction) => {
-      if (!matchesClassFilter(prediction, classFilter)) {
-        return false;
-      }
-      const time = new Date(prediction.requested_at).getTime();
-      if (Number.isNaN(time)) {
-        return true;
-      }
-      if (start !== null && time < start) {
-        return false;
-      }
-      if (end !== null && time > end) {
-        return false;
-      }
-      return true;
-    });
-  }, [classFilter, history, rangeEnd, rangeStart]);
+    const timeoutId = window.setTimeout(() => {
+      void loadHistory(page);
+    }, 150);
+    return () => window.clearTimeout(timeoutId);
+  }, [classFilter, page, rangeEnd, rangeStart]);
 
   const selectedPrediction = useMemo(() => {
-    const visibleSelection = filteredHistory.find((prediction) => prediction.prediction_id === selectedId);
-    return visibleSelection ?? filteredHistory[0] ?? null;
-  }, [filteredHistory, selectedId]);
-
-  const selectedHeatmapData: Heatmap | null =
-    selectedPrediction?.heatmaps[selectedHeatmap] ?? selectedPrediction?.heatmaps[0] ?? null;
+    const visibleSelection = history.find((prediction) => prediction.prediction_id === selectedId);
+    return visibleSelection ?? history[0] ?? null;
+  }, [history, selectedId]);
 
   function selectPrediction(prediction: Prediction) {
     setSelectedId(prediction.prediction_id);
-    setSelectedHeatmap(0);
     setViewMode("detail");
   }
 
@@ -337,18 +355,31 @@ export default function Page() {
                 id="range-start"
                 type="datetime-local"
                 value={rangeStart}
-                onChange={(event) => setRangeStart(event.target.value)}
+                onChange={(event) => {
+                  setRangeStart(event.target.value);
+                  setPage(1);
+                }}
               />
               <span>-</span>
               <input
                 id="range-end"
                 type="datetime-local"
                 value={rangeEnd}
-                onChange={(event) => setRangeEnd(event.target.value)}
+                onChange={(event) => {
+                  setRangeEnd(event.target.value);
+                  setPage(1);
+                }}
               />
             </div>
             <label htmlFor="class-filter">Class filter</label>
-            <select id="class-filter" value={classFilter} onChange={(event) => setClassFilter(event.target.value as ClassFilter)}>
+            <select
+              id="class-filter"
+              value={classFilter}
+              onChange={(event) => {
+                setClassFilter(event.target.value as ClassFilter);
+                setPage(1);
+              }}
+            >
               <option value="all">All</option>
               <option value="flare">Flare</option>
               <option value="non-flare">Non-flare</option>
@@ -358,23 +389,21 @@ export default function Page() {
               onClick={() => {
                 setRangeStart("");
                 setRangeEnd("");
+                setPage(1);
               }}
             >
               Clear range
             </button>
           </div>
 
-          <div className="recordsCount">{filteredHistory.length} records</div>
+          <div className="recordsCount">{totalRecords} records</div>
 
           {historyState === "loading" && !history.length ? <div className="emptyState">Loading predictions</div> : null}
           {historyState === "error" && !history.length ? <div className="emptyState">API unavailable</div> : null}
           {!history.length && historyState === "idle" ? <div className="emptyState">No predictions stored</div> : null}
-          {history.length > 0 && filteredHistory.length === 0 ? (
-            <div className="emptyState">No predictions in range</div>
-          ) : null}
 
           <div className="historyList">
-            {filteredHistory.map((prediction) => (
+            {history.map((prediction) => (
               <PredictionRow
                 key={prediction.prediction_id}
                 prediction={prediction}
@@ -383,21 +412,25 @@ export default function Page() {
               />
             ))}
           </div>
+          <PaginationControls page={page} totalPages={totalPages} totalRecords={totalRecords} onPageChange={setPage} />
         </aside>
 
         {viewMode === "catalog" ? (
           <section className="catalogPanel">
-            {filteredHistory.length ? (
-              <div className="catalogGrid">
-                {filteredHistory.map((prediction) => (
-                  <PredictionCard
-                    key={prediction.prediction_id}
-                    prediction={prediction}
-                    active={prediction.prediction_id === selectedPrediction?.prediction_id}
-                    onSelect={() => selectPrediction(prediction)}
-                  />
-                ))}
-              </div>
+            {history.length ? (
+              <>
+                <div className="catalogGrid">
+                  {history.map((prediction) => (
+                    <PredictionCard
+                      key={prediction.prediction_id}
+                      prediction={prediction}
+                      active={prediction.prediction_id === selectedPrediction?.prediction_id}
+                      onSelect={() => selectPrediction(prediction)}
+                    />
+                  ))}
+                </div>
+                <PaginationControls page={page} totalPages={totalPages} totalRecords={totalRecords} onPageChange={setPage} />
+              </>
             ) : (
               <div className="emptyState large">No predictions to display</div>
             )}
@@ -433,7 +466,7 @@ export default function Page() {
                     label="Localized regions"
                     value={String(selectedPrediction.active_regions.length)}
                   />
-                  <Metric label="Heatmaps" value={String(selectedPrediction.heatmaps.length)} />
+                  <Metric label="Buffered mask" value={selectedPrediction.buffered_mask_url ? "Available" : "Missing"} />
                   <Metric label="Data source" value="SDO / HMI" />
                 </div>
 
@@ -454,29 +487,13 @@ export default function Page() {
                   <section className="visualStage">
                     <div className="sectionHeader">
                       <div>
-                        <span>Attribution</span>
-                        <strong>{selectedHeatmapData?.method_name ?? "No heatmap"}</strong>
+                        <span>Region Proposal</span>
+                        <strong>Buffered Solar Mask</strong>
                       </div>
                     </div>
-
-                    {selectedPrediction.heatmaps.length ? (
-                      <div className="heatmapTabs" role="tablist">
-                        {selectedPrediction.heatmaps.map((heatmap, index) => (
-                          <button
-                            key={`${heatmap.method_name}-${heatmap.image_path}`}
-                            className={index === selectedHeatmap ? "selected" : ""}
-                            type="button"
-                            onClick={() => setSelectedHeatmap(index)}
-                          >
-                            {heatmap.method_name}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-
                     <ArtifactImage
-                      path={selectedHeatmapData?.image_path}
-                      label={selectedHeatmapData?.method_name ?? "Heatmap"}
+                      path={selectedPrediction.buffered_mask_url}
+                      label="Buffered solar mask"
                     />
                   </section>
                 </div>
