@@ -20,7 +20,8 @@ export type Prediction = {
   predicted_class: string;
   jp2_image_url?: string | null;
   full_disk_image_url?: string | null;
-  buffered_mask_url?: string | null;
+  heatmap_url?: string | null;
+  final_hulls_url?: string | null;
   active_regions: ActiveRegion[];
   heatmaps: Heatmap[];
   raw_active_regions: Record<string, unknown>[];

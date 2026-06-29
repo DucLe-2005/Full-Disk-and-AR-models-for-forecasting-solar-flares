@@ -40,6 +40,13 @@ function formatTime(value: string) {
   return `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())} UTC`;
 }
 
+function formatRequestedAtForMessage(value: string | null | undefined) {
+  if (!value) {
+    return "current hour";
+  }
+  return formatDateTime(value.replace(" ", "T") + "Z");
+}
+
 function percent(value: number) {
   return `${Math.round(value * 1000) / 10}%`;
 }
@@ -239,6 +246,46 @@ export default function Page() {
   const [totalRecords, setTotalRecords] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
 
+  async function refreshAndEnsureCurrentHour() {
+    setStatusMessage(null);
+
+    let refreshMessage: string | null = null;
+    try {
+      const response = await fetch("/api/jobs/current-hour", {
+        method: "POST",
+        cache: "no-store"
+      });
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail ?? `Current-hour job request failed with ${response.status}`);
+      }
+
+      const result = (await response.json()) as {
+        status?: string;
+        helioviewer_date?: string;
+        requested_at?: string;
+      };
+      const requestedAt = formatRequestedAtForMessage(result.requested_at ?? result.helioviewer_date);
+
+      if (result.status === "queued") {
+        refreshMessage = `Queued prediction job for ${requestedAt}`;
+      } else if (result.status === "prediction_exists") {
+        refreshMessage = `Prediction already exists for ${requestedAt}`;
+      } else if (result.status === "job_exists") {
+        refreshMessage = `Prediction job already queued for ${requestedAt}`;
+      }
+    } catch (error) {
+      refreshMessage = error instanceof Error ? error.message : "Could not sync current-hour prediction job";
+    }
+
+    const loadedHistory = await loadHistory(1);
+    setPage(1);
+    if (refreshMessage && loadedHistory !== null) {
+      setStatusMessage(refreshMessage);
+    }
+  }
+
   async function loadHistory(requestedPage = page) {
     setHistoryState("loading");
     setStatusMessage(null);
@@ -285,7 +332,7 @@ export default function Page() {
       setHistoryState("error");
       const message = error instanceof Error ? error.message : "Could not load history";
       setStatusMessage(message === "fetch failed" ? "Backend API unavailable" : message);
-      return [];
+      return null;
     }
   }
 
@@ -317,7 +364,7 @@ export default function Page() {
           <span className="lastUpdated">
             {lastLoadedAt ? `Last updated: ${formatTime(lastLoadedAt)}` : historyState === "error" ? "Last updated: unavailable" : "Last updated: --"}
           </span>
-          <button className="refreshButton" type="button" onClick={() => void loadHistory()}>
+          <button className="refreshButton" type="button" onClick={() => void refreshAndEnsureCurrentHour()}>
             <IconRefresh />
             <span>Refresh</span>
           </button>
@@ -466,7 +513,8 @@ export default function Page() {
                     label="Localized regions"
                     value={String(selectedPrediction.active_regions.length)}
                   />
-                  <Metric label="Buffered mask" value={selectedPrediction.buffered_mask_url ? "Available" : "Missing"} />
+                  <Metric label="Heatmap" value={selectedPrediction.heatmap_url ? "Available" : "Missing"} />
+                  <Metric label="Final hulls" value={selectedPrediction.final_hulls_url ? "Available" : "Missing"} />
                   <Metric label="Data source" value="SDO / HMI" />
                 </div>
 
@@ -488,12 +536,25 @@ export default function Page() {
                     <div className="sectionHeader">
                       <div>
                         <span>Region Proposal</span>
-                        <strong>Buffered Solar Mask</strong>
+                        <strong>Heatmap</strong>
                       </div>
                     </div>
                     <ArtifactImage
-                      path={selectedPrediction.buffered_mask_url}
-                      label="Buffered solar mask"
+                      path={selectedPrediction.heatmap_url}
+                      label="Heatmap"
+                    />
+                  </section>
+
+                  <section className="visualStage">
+                    <div className="sectionHeader">
+                      <div>
+                        <span>Region Proposal</span>
+                        <strong>Final Region Hulls</strong>
+                      </div>
+                    </div>
+                    <ArtifactImage
+                      path={selectedPrediction.final_hulls_url}
+                      label="Final region hulls"
                     />
                   </section>
                 </div>
