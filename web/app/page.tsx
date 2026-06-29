@@ -122,6 +122,32 @@ function ArtifactImage({
   return <img className="artifactImage" src={url} alt={label} />;
 }
 
+function AttributionMap({
+  path,
+  title,
+  description,
+  featured = false
+}: {
+  path?: string | null;
+  title: string;
+  description: string;
+  featured?: boolean;
+}) {
+  return (
+    <figure className={`attributionMap ${featured ? "featured" : ""}`}>
+      <ArtifactImage path={path} label={`${title} attribution map`} />
+      <figcaption>
+        <strong>{title}</strong>
+        <span>{description}</span>
+      </figcaption>
+    </figure>
+  );
+}
+
+function findHeatmap(prediction: Prediction, methodName: string) {
+  return prediction.heatmaps.find((heatmap) => heatmap.method_name === methodName)?.image_path;
+}
+
 function ProbabilityBar({
   value,
   tone = "flare"
@@ -348,6 +374,21 @@ export default function Page() {
     return visibleSelection ?? history[0] ?? null;
   }, [history, selectedId]);
 
+  const attributionPaths = selectedPrediction
+    ? {
+        guidedGradcam:
+          selectedPrediction.guided_gradcam_url ?? findHeatmap(selectedPrediction, "Guided Grad-CAM"),
+        integratedGradients:
+          selectedPrediction.integrated_gradients_url ??
+          findHeatmap(selectedPrediction, "Integrated Gradients"),
+        deepshap: selectedPrediction.deepshap_url ?? findHeatmap(selectedPrediction, "DeepLiftShap"),
+        consensus:
+          selectedPrediction.consensus_url ??
+          findHeatmap(selectedPrediction, "Consensus") ??
+          selectedPrediction.heatmap_url
+      }
+    : null;
+
   function selectPrediction(prediction: Prediction) {
     setSelectedId(prediction.prediction_id);
     setViewMode("detail");
@@ -518,7 +559,7 @@ export default function Page() {
                   <Metric label="Data source" value="SDO / HMI" />
                 </div>
 
-                <div className="visualGrid">
+                <div className="observationGrid">
                   <section className="visualStage">
                     <div className="sectionHeader">
                       <div>
@@ -535,21 +576,7 @@ export default function Page() {
                   <section className="visualStage">
                     <div className="sectionHeader">
                       <div>
-                        <span>Region Proposal</span>
-                        <strong>Heatmap</strong>
-                      </div>
-                    </div>
-                    <ArtifactImage
-                      path={selectedPrediction.heatmap_url}
-                      label="Heatmap"
-                    />
-                  </section>
-
-                  <section className="visualStage">
-                    <div className="sectionHeader">
-                      <div>
-                        <span>Region Proposal</span>
-                        <strong>Final Region Hulls</strong>
+                        <span>Final Region Hulls</span>
                       </div>
                     </div>
                     <ArtifactImage
@@ -558,6 +585,47 @@ export default function Page() {
                     />
                   </section>
                 </div>
+
+                <section className="attributionSection">
+                  <div className="attributionHeader">
+                    <div>
+                      <span>Model interpretation</span>
+                      <h2>Attribution maps</h2>
+                    </div>
+                    <p>Three attribution methods combine pixel-by-pixel into the consensus map.</p>
+                  </div>
+
+                  <div className="sourceMapsGrid">
+                    <AttributionMap
+                      path={attributionPaths?.guidedGradcam}
+                      title="Guided Grad-CAM"
+                      description="Localized gradient response"
+                    />
+                    <AttributionMap
+                      path={attributionPaths?.integratedGradients}
+                      title="Integrated Gradients"
+                      description="Accumulated input contribution"
+                    />
+                    <AttributionMap
+                      path={attributionPaths?.deepshap}
+                      title="DeepLiftShap"
+                      description="Baseline-relative contribution"
+                    />
+                  </div>
+
+                  <div className="consensusDivider" aria-hidden="true">
+                    <span>Element-wise product</span>
+                  </div>
+
+                  <div className="consensusMap">
+                    <AttributionMap
+                      path={attributionPaths?.consensus}
+                      title="Consensus"
+                      description="Shared signal across all three methods"
+                      featured
+                    />
+                  </div>
+                </section>
 
                 <section className="regionsSection">
                   <div className="sectionHeader">

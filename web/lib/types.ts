@@ -21,6 +21,10 @@ export type Prediction = {
   jp2_image_url?: string | null;
   full_disk_image_url?: string | null;
   heatmap_url?: string | null;
+  guided_gradcam_url?: string | null;
+  integrated_gradients_url?: string | null;
+  deepshap_url?: string | null;
+  consensus_url?: string | null;
   final_hulls_url?: string | null;
   active_regions: ActiveRegion[];
   heatmaps: Heatmap[];

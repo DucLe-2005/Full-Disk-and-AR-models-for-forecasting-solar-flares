@@ -22,6 +22,21 @@ Copy-Item .env.example .env
 docker compose up --build -d
 ```
 
+For development, add the development override. It bind-mounts the API,
+frontend, worker, and pipeline source into their containers. FastAPI and
+Next.js reload automatically when their source changes.
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+```
+
+The worker sees source changes immediately through the bind mount, but its
+Python process must be restarted to import changed code:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.dev.yml restart worker
+```
+
 Services:
 
 - Dashboard: `http://localhost:3000`

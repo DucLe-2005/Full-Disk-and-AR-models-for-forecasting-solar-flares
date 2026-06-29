@@ -392,7 +392,7 @@ h1 {
 
 .summaryGrid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   margin-bottom: 18px;
   padding: 18px 0;
   border-bottom: 1px solid var(--line);
@@ -429,13 +429,14 @@ h1 {
   color: var(--red);
 }
 
-.visualGrid {
+.observationGrid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 12px;
 }
 
 .visualStage,
+.attributionSection,
 .regionsSection,
 .catalogPanel {
   border: 1px solid var(--line);
@@ -446,6 +447,122 @@ h1 {
 .visualStage {
   min-width: 0;
   overflow: hidden;
+}
+
+.attributionSection {
+  margin-top: 12px;
+  padding: 20px;
+}
+
+.attributionHeader {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 32px;
+  margin-bottom: 18px;
+}
+
+.attributionHeader span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.attributionHeader h2 {
+  margin: 0;
+  font-size: 1.18rem;
+  line-height: 1.2;
+}
+
+.attributionHeader p {
+  max-width: 420px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.sourceMapsGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.attributionMap {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.attributionMap .artifactImage,
+.attributionMap .imagePlaceholder {
+  aspect-ratio: 1 / 1;
+  min-height: 0;
+}
+
+.attributionMap figcaption {
+  display: grid;
+  gap: 3px;
+  padding: 11px 12px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.attributionMap figcaption strong {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.attributionMap figcaption span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.consensusDivider {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 60px;
+}
+
+.consensusDivider::before {
+  position: absolute;
+  inset: 50% 0 auto;
+  border-top: 1px solid var(--line);
+  content: "";
+}
+
+.consensusDivider span {
+  position: relative;
+  padding: 0 12px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.consensusMap {
+  width: min(100%, 520px);
+  margin: 0 auto;
+}
+
+.attributionMap.featured {
+  border-color: rgba(37, 99, 235, 0.48);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.08);
+}
+
+.attributionMap.featured figcaption {
+  background: var(--blue-soft);
 }
 
 .sectionHeader {
@@ -692,7 +809,7 @@ dd {
   }
 
   .workspace,
-  .visualGrid {
+  .observationGrid {
     grid-template-columns: 1fr;
   }
 
@@ -755,6 +872,29 @@ dd {
   .detailPanel,
   .catalogPanel {
     padding: 12px;
+  }
+
+  .attributionSection {
+    padding: 14px;
+  }
+
+  .attributionHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .attributionHeader p {
+    max-width: none;
+    text-align: left;
+  }
+
+  .sourceMapsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .consensusDivider {
+    min-height: 52px;
   }
 
   .eventHeader,
