@@ -1,9 +1,6 @@
 -r base.txt
-astropy
 captum
-drms
 einops
-matplotlib
 numpy
 opencv-python-headless
 pandas
@@ -13,6 +10,5 @@ python-dotenv
 requests
 scikit-learn
 scipy
-sunpy
 torch
 torchvision

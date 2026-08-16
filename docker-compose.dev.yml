@@ -20,11 +20,6 @@ services:
       - ./app:/app/app
       - ./prediction:/app/prediction
 
-  pipeline:
-    volumes:
-      - ./app:/app/app
-      - ./prediction:/app/prediction
-
 volumes:
   web_node_modules:
   web_next:

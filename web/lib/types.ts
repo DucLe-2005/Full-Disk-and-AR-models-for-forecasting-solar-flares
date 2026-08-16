@@ -4,6 +4,9 @@ export type ActiveRegion = {
   heatmap_score?: number | null;
   image_path?: string | null;
   bbox_original?: number[] | null;
+  bbox_resized?: number[] | null;
+  center_resized?: number[] | null;
+  polygon_resized?: number[][] | null;
 };
 
 export type Heatmap = {

@@ -110,31 +110,28 @@ Important frontend behavior:
 
 ## Prediction System: `prediction/`
 
-The prediction folder contains the long-running worker, the prediction pipeline, model definitions, trained weights, and solar image download helpers.
+The prediction folder separates application inference from manually invoked evaluation and reporting.
 
 ```text
 prediction/
-|-- download_mag/        Magnetogram/FITS/JP2 download and transform helpers
-|
 |-- modeling/
 |   |-- active_region/   Active-region model definitions and weights
-|   `-- full_disk/       Full-disk model definition and fold weights
+|   `-- full_disk/       Full-disk model, ensemble loader, and fold weights
 |
 |-- pipeline/
-|   |-- stages/          Download, preprocess, attribution, crop, predict stages
-|   |-- utils/
-|   |-- jobs/
-|   `-- run_pipeline.py  Pipeline orchestration entrypoint
+|   |-- stages/          Production download, attribution, crop, predict stages
+|   `-- run_pipeline.py  Worker-facing pipeline orchestration
 |
 |-- worker/
 |   `-- run_worker.py    Polls jobs, runs pipeline, saves results
 |
+|-- evaluation/          Offline download, labels, inference, metrics, reports
+|
 |-- Dockerfile           Long-running worker container
-|-- Dockerfile.pipeline  Manual one-shot pipeline container
 `-- requirements.txt
 ```
 
-The worker is the normal production path. The manual pipeline container is only for direct one-shot runs.
+The worker is the only production entrypoint. Offline tasks run as Python modules under `prediction.evaluation`.
 
 ---
 
@@ -145,6 +142,7 @@ requirements/
 |-- api.txt              Backend/API dependencies
 |-- base.txt             Shared Python dependencies
 |-- pipeline.txt         Pipeline/model dependencies
+|-- evaluation.txt       Pipeline plus optional offline FITS/JSOC dependencies
 `-- requirements.txt     Combined include file
 ```
 

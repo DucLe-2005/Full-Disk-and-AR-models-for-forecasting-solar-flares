@@ -383,6 +383,7 @@ export default function Page() {
           findHeatmap(selectedPrediction, "Integrated Gradients"),
         deepshap: selectedPrediction.deepshap_url ?? findHeatmap(selectedPrediction, "DeepLiftShap"),
         consensus:
+          findHeatmap(selectedPrediction, "Proposal Heatmap") ??
           selectedPrediction.consensus_url ??
           findHeatmap(selectedPrediction, "Consensus") ??
           selectedPrediction.heatmap_url
@@ -579,10 +580,7 @@ export default function Page() {
                         <span>Final Region Hulls</span>
                       </div>
                     </div>
-                    <ArtifactImage
-                      path={selectedPrediction.final_hulls_url}
-                      label="Final region hulls"
-                    />
+                    <ArtifactImage path={selectedPrediction.final_hulls_url} label="Final region hulls" />
                   </section>
                 </div>
 
@@ -618,12 +616,7 @@ export default function Page() {
                   </div>
 
                   <div className="consensusMap">
-                    <AttributionMap
-                      path={attributionPaths?.consensus}
-                      title="Consensus"
-                      description="Shared signal across all three methods"
-                      featured
-                    />
+                    <ArtifactImage path={attributionPaths?.consensus} label="Consensus attribution map" />
                   </div>
                 </section>
 

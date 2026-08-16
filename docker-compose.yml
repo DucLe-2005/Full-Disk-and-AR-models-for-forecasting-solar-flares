@@ -109,27 +109,6 @@ services:
       - ./prediction/modeling/full_disk/trained_models:/app/prediction/modeling/full_disk/trained_models:ro
       - ./prediction/modeling/active_region/trained_models:/app/prediction/modeling/active_region/trained_models:ro
 
-  pipeline:
-    build:
-      context: .
-      dockerfile: prediction/Dockerfile.pipeline
-    container_name: flare_pipeline
-    profiles:
-      - manual
-    restart: "no"
-    depends_on:
-      db:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      createbuckets:
-        condition: service_completed_successfully
-    env_file:
-      - .env
-    volumes:
-      - ./prediction/modeling/full_disk/trained_models:/app/prediction/modeling/full_disk/trained_models:ro
-      - ./prediction/modeling/active_region/trained_models:/app/prediction/modeling/active_region/trained_models:ro
-
 volumes:
   postgres_data:
   minio_data:

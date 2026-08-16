@@ -1,0 +1,4 @@
+-r pipeline.txt
+astropy
+drms
+sunpy

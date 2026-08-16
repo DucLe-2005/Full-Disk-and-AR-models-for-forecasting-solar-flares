@@ -3,7 +3,10 @@
 Hourly solar-flare prediction from full-disk HMI magnetograms. The stack includes:
 
 - `app/`: FastAPI API, Postgres repositories, job services, and MinIO helpers.
-- `prediction/`: queue worker, prediction pipeline, models, and trained weights.
+- `prediction/pipeline/`: production inference stages used by the application.
+- `prediction/worker/`: queue consumer and artifact persistence.
+- `prediction/modeling/`: model architectures and trained weights.
+- `prediction/evaluation/`: offline downloads, labels, evaluation, and reports.
 - `web/`: Next.js dashboard for submitting jobs and viewing results.
 
 ## Quick Start
@@ -66,12 +69,6 @@ docker compose down
 docker compose down -v
 ```
 
-Run one pipeline manually:
-
-```powershell
-docker compose --profile manual run --rm pipeline --helioviewer-date "2023-04-19 13:00:00"
-```
-
 ## Backfill
 
 Queue hourly jobs from `2020-01-01 00:00:00` through `2025-12-31 23:00:00`:
@@ -89,6 +86,41 @@ docker compose exec api python -m app.scripts.backfill_predictions `
 ```
 
 The service skips hours with an existing prediction or an already queued/running job. The worker processes the resulting queue normally.
+
+## Offline Evaluation
+
+Download one full-resolution HMI magnetogram per day for 365 days in 2025,
+starting at midnight, and convert each JP2 to JPG:
+
+```powershell
+venv\Scripts\python.exe -m prediction.evaluation.download_2025_magnetograms
+```
+
+To invoke it from Python instead:
+
+```python
+from prediction.evaluation.download_2025_magnetograms import download_2025_magnetograms
+
+download_2025_magnetograms()
+```
+
+Files are written under:
+
+```text
+data/YYYY/MM/DD/HH/mm/ss/jp2/
+data/YYYY/MM/DD/HH/mm/ss/jpg/
+```
+
+The downloader reuses existing JP2 files and skips existing JPG conversions.
+Run the complete 2025 evaluation after the archive is available:
+
+```powershell
+venv\Scripts\python.exe -m prediction.evaluation.evaluate_2025
+```
+
+This creates `data/evaluation_2025/dataset.csv`, runs batched inference, and
+writes `full_disk_predictions.csv` and `metrics.csv`. See
+`prediction/evaluation/README.md` for the offline package structure.
 
 ## Job Flow
 
@@ -114,7 +146,7 @@ The worker processes existing jobs only. It does not currently enqueue a new job
 The pipeline in `prediction/pipeline/run_pipeline.py`:
 
 1. Downloads an HMI JP2 and converts it to a full-disk JPG.
-2. Runs the four-fold full-disk classifier.
+2. Runs the fold-1 full-disk classifier.
 3. Generates Guided Grad-CAM, Integrated Gradients, and DeepLiftShap maps in memory.
 4. Combines them into a consensus heatmap.
 5. Runs Canny, DBSCAN, convex-hull buffering, solar-disk masking, and reclustering.
@@ -122,7 +154,12 @@ The pipeline in `prediction/pipeline/run_pipeline.py`:
 7. Produces padded fixed-size `512x512` active-region crops.
 8. Runs active-region model inference.
 
-Every final reclustered hull is retained as an active-region proposal. Consensus and area-weighted scores are stored as metadata but do not filter or rank the hulls.
+Every final reclustered hull is retained as an active-region proposal. Proposals are ranked by a normalized area-weighted consensus score: mean heatmap intensity inside the polygon multiplied by `log1p(region_area) / log1p(max_region_area)`.
+
+Production has no command-line parser. The worker supplies only the requested
+Helioviewer timestamp; stable model selections, thresholds, crop size,
+clustering settings, and proposal buffers are named constants in
+`run_pipeline.py` and `region_proposal.py`.
 
 ## Artifact Storage
 
@@ -160,7 +197,6 @@ The main settings are defined in `.env.example`:
 
 - `DATABASE_URL`: Postgres connection used by API and worker.
 - `MINIO_ENDPOINT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `MINIO_BUCKET`.
-- `JSOC_EMAIL`: retained for optional JSOC support.
 - `DEFAULT_HELIOVIEWER_DATE`: fallback for jobs missing a requested date.
 
 Compose uses service hostnames such as `db` and `minio`. Local processes outside Docker should use reachable hostnames such as `localhost`.
