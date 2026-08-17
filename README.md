@@ -1,13 +1,74 @@
 # Solar Flare Forecasting
+This repo presents the web application and deep learning pipeline that integrates full-disk solar flare prediction model and active region prediction models. Using three explainability methods (i) Guided Gradient=weighted Class Activation Mapping, (ii) Deep Shapley Additive Exaplantions, and (iii) Integrated Gradients.
 
-Hourly solar-flare prediction from full-disk HMI magnetograms. The stack includes:
+## Structure
 
-- `app/`: FastAPI API, Postgres repositories, job services, and MinIO helpers.
-- `prediction/pipeline/`: production inference stages used by the application.
-- `prediction/worker/`: queue consumer and artifact persistence.
+- `app/`: backend server
+- `prediction/pipeline/`: inference stages used by the application.
+- `prediction/worker/`: cosume prediction jobs in the queue and save artifacts generated.
 - `prediction/modeling/`: model architectures and trained weights.
-- `prediction/evaluation/`: offline downloads, labels, evaluation, and reports.
-- `web/`: Next.js dashboard for submitting jobs and viewing results.
+- `prediction/evaluation/`: Offline dataset preparation, model evaluation, and
+  localization analysis. These utilities reuse selected production pipeline
+  stages but are not imported by the production worker.
+
+## Source Code Documentation
+
+1. download_2025_magnetograms.py: This function downloads HMI Magnetograms at every mid night (if present) in 2025. These HMI magnetograms will then be used for evaluation.
+2. labels.py: The function `create_24h_labels()` creates dataset.csv with lables for existing 2025 HMI JPGs. `true_label` is 1 when an M- or X-class flare peaks in the interval [magnetogram timestamp, timestamp + 24 hours), otherwise 0. 
+3. `dataset.py`: This class loads the labled full-disk magnetograms listed in a dataset CSV.
+4. `localization.py`: Parses flare-event positions, projects their heliographic coordinates into image pixels, matches them to proposed active-region hulls, and creates diagnostic overlays.
+
+  ### Full-disk evaluation — `evaluate_full_disk.py`
+
+  The full-disk evaluation entry point evaluates the fold-1 full-disk
+  classifier over the 2025 magnetogram archive. It first creates 24-hour
+  M/X-flare labels, loads the labeled magnetograms in batches, runs softmax
+  inference with the trained fold-1 `Custom_AlexNet` checkpoint (on CPU or
+  CUDA), applies a `0.5` flare-probability threshold, and writes both per-image
+  predictions and summary metrics.
+
+  Run it with:
+
+  ```sh
+  python -m prediction.evaluation.evaluate_full_disk
+  ```
+
+  Its outputs are written to `data/evaluation_2025/`:
+
+  - `dataset.csv`: one 2025 magnetogram per row, with timestamp, image path,
+    and the next-24-hour M/X flare label.
+  - `full_disk_predictions.csv`: true labels, class probabilities, and binary
+    predictions for every evaluated image.
+  - `metrics.csv`: TN, FP, FN, TP, accuracy, precision, recall, F1, TSS, and
+    HSS for the full-disk model.
+
+  ### Active-region evaluation — `evaluate_ar.py`
+
+  The active-region evaluation entry point evaluates the MobileNet
+  active-region classifier on regions proposed from each 2025 full-disk
+  magnetogram. For every image, it generates attribution-based region hulls,
+  projects catalogued M/X-flare active-region locations from `data/events.csv`
+  into the 512px image coordinate system, labels proposals by whether they
+  contain a catalogued active region, crops each proposal from the matching
+  JP2 magnetogram, and classifies the crop at a `0.5` threshold. It also saves
+  an overlay whenever a magnetogram has catalogued active regions.
+
+  Run it with:
+
+  ```sh
+  python -m prediction.evaluation.evaluate_ar
+  ```
+
+  Its outputs are written to `data/active_region_evaluation_2025/`:
+
+  - `active_region_predictions.csv`: one row per proposed region, including
+    its rank, true label, flare probability, and predicted label.
+  - `metrics.csv`: TN, FP, FN, TP, accuracy, precision, recall, F1, TSS, and
+    HSS for active-region proposals.
+  - `final_hulls_with_actual_ars/`: diagnostic overlays of proposal hulls and
+    projected catalogue active-region locations.
+
+- `web/`: web dashboard to view all solar flare predictions.
 
 ## Quick Start
 
@@ -18,26 +79,50 @@ prediction/modeling/full_disk/trained_models/
 prediction/modeling/active_region/trained_models/
 ```
 
-Create the environment file and start the stack:
+Choose one of the following setup paths.
 
-```powershell
-Copy-Item .env.example .env
+### Docker Compose
+
+Create a `.env` file in the repository root using `.env.example` as the
+template, then start the complete stack:
+
+```sh
 docker compose up --build -d
 ```
 
-For development, add the development override. It bind-mounts the API,
-frontend, worker, and pipeline source into their containers. FastAPI and
-Next.js reload automatically when their source changes.
+For Docker-based development with source bind mounts and automatic API and
+frontend reloads, use:
 
-```powershell
+```sh
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```
 
-The worker sees source changes immediately through the bind mount, but its
-Python process must be restarted to import changed code:
+Restart the worker after changing its Python source:
 
-```powershell
+```sh
 docker compose -f docker-compose.yml -f docker-compose.dev.yml restart worker
+```
+
+### Local development
+
+Create `.env` from `.env.example` in the repository root and create
+`web/.env.local` from `web/.env.local.example`. Install dependencies, then run
+the API, worker, and frontend in separate terminals:
+
+```sh
+# Install Python dependencies
+python -m pip install -r requirements.txt
+
+# Terminal 1: API
+uvicorn app.main:app --reload
+
+# Terminal 2: worker
+python -m prediction.worker.run_worker
+
+# Terminal 3: frontend
+cd web
+npm install
+npm run dev
 ```
 
 Services:
@@ -52,7 +137,7 @@ The model weights are mounted read-only into the worker and manual pipeline cont
 
 ## Common Commands
 
-```powershell
+```sh
 # Logs
 docker compose logs -f worker
 docker compose logs -f api
@@ -73,15 +158,15 @@ docker compose down -v
 
 Queue hourly jobs from `2020-01-01 00:00:00` through `2025-12-31 23:00:00`:
 
-```powershell
+```sh
 docker compose exec api python -m app.scripts.backfill_predictions
 ```
 
 Custom inclusive range:
 
-```powershell
-docker compose exec api python -m app.scripts.backfill_predictions `
-  --start-time "2020-01-01" `
+```sh
+docker compose exec api python -m app.scripts.backfill_predictions \
+  --start-time "2020-01-01" \
   --end-time "2025-12-31"
 ```
 
@@ -92,8 +177,8 @@ The service skips hours with an existing prediction or an already queued/running
 Download one full-resolution HMI magnetogram per day for 365 days in 2025,
 starting at midnight, and convert each JP2 to JPG:
 
-```powershell
-venv\Scripts\python.exe -m prediction.evaluation.download_2025_magnetograms
+```sh
+python -m prediction.evaluation.download_2025_magnetograms
 ```
 
 To invoke it from Python instead:
@@ -114,8 +199,8 @@ data/YYYY/MM/DD/HH/mm/ss/jpg/
 The downloader reuses existing JP2 files and skips existing JPG conversions.
 Run the complete 2025 evaluation after the archive is available:
 
-```powershell
-venv\Scripts\python.exe -m prediction.evaluation.evaluate_2025
+```sh
+python -m prediction.evaluation.evaluate_full_disk
 ```
 
 This creates `data/evaluation_2025/dataset.csv`, runs batched inference, and
@@ -200,25 +285,6 @@ The main settings are defined in `.env.example`:
 - `DEFAULT_HELIOVIEWER_DATE`: fallback for jobs missing a requested date.
 
 Compose uses service hostnames such as `db` and `minio`. Local processes outside Docker should use reachable hostnames such as `localhost`.
-
-## Local Development
-
-```powershell
-# Python dependencies
-pip install -r requirements.txt
-
-# API
-uvicorn app.main:app --reload
-
-# Worker
-python -m prediction.worker.run_worker
-
-# Frontend
-cd web
-npm install
-Copy-Item .env.local.example .env.local
-npm run dev
-```
 
 ## Troubleshooting
 

@@ -16,7 +16,6 @@ evaluation/
 |-- labels.py                     24-hour M/X flare labels and dataset.csv
 |-- metrics.py                    confusion matrix and skill metrics
 |-- download_2025_magnetograms.py one-off 2025 Helioviewer archive job
-|-- fits_preprocessing.py         optional manual FITS conversion utilities
 |-- jsoc_download.py              optional manual JSOC FITS download
 |-- localization.py               event-position projection and hull coverage metrics
 |-- evaluate_active_region_localization.py
