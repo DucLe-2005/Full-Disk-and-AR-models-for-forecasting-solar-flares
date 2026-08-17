@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { artifactUrl } from "@/lib/artifacts";
 import type { Prediction, PredictionHistoryPage } from "@/lib/types";
@@ -11,7 +11,9 @@ type ClassFilter = "all" | "flare" | "non-flare";
 const PAGE_SIZE = 10;
 
 function parseDate(value: string) {
-  const date = new Date(value);
+  const normalizedValue = value.replace(" ", "T");
+  const hasTimeZone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(normalizedValue);
+  const date = new Date(hasTimeZone ? normalizedValue : `${normalizedValue}Z`);
   if (Number.isNaN(date.getTime())) {
     return null;
   }
@@ -263,14 +265,18 @@ export default function Page() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [historyState, setHistoryState] = useState<LoadState>("idle");
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [draftRangeStart, setDraftRangeStart] = useState("");
+  const [draftRangeEnd, setDraftRangeEnd] = useState("");
   const [rangeStart, setRangeStart] = useState("");
   const [rangeEnd, setRangeEnd] = useState("");
+  const [rangeRequestVersion, setRangeRequestVersion] = useState(0);
   const [viewMode, setViewMode] = useState<ViewMode>("detail");
   const [classFilter, setClassFilter] = useState<ClassFilter>("all");
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
   const [totalPages, setTotalPages] = useState(1);
+  const historyRequestId = useRef(0);
 
   async function refreshAndEnsureCurrentHour() {
     setStatusMessage(null);
@@ -313,6 +319,7 @@ export default function Page() {
   }
 
   async function loadHistory(requestedPage = page) {
+    const requestId = ++historyRequestId.current;
     setHistoryState("loading");
     setStatusMessage(null);
 
@@ -341,6 +348,9 @@ export default function Page() {
       }
 
       const data = (await response.json()) as PredictionHistoryPage;
+      if (requestId !== historyRequestId.current) {
+        return null;
+      }
       setHistory(data.items);
       setPage(data.page);
       setTotalRecords(data.total);
@@ -355,6 +365,9 @@ export default function Page() {
       setHistoryState("idle");
       return data.items;
     } catch (error) {
+      if (requestId !== historyRequestId.current) {
+        return null;
+      }
       setHistoryState("error");
       const message = error instanceof Error ? error.message : "Could not load history";
       setStatusMessage(message === "fetch failed" ? "Backend API unavailable" : message);
@@ -367,7 +380,29 @@ export default function Page() {
       void loadHistory(page);
     }, 150);
     return () => window.clearTimeout(timeoutId);
-  }, [classFilter, page, rangeEnd, rangeStart]);
+  }, [classFilter, page, rangeEnd, rangeRequestVersion, rangeStart]);
+
+  function applyDateRange() {
+    if (draftRangeStart && draftRangeEnd && draftRangeStart > draftRangeEnd) {
+      setHistoryState("error");
+      setStatusMessage("The start of the date range must be before its end");
+      return;
+    }
+
+    setRangeStart(draftRangeStart);
+    setRangeEnd(draftRangeEnd);
+    setPage(1);
+    setRangeRequestVersion((version) => version + 1);
+  }
+
+  function clearDateRange() {
+    setDraftRangeStart("");
+    setDraftRangeEnd("");
+    setRangeStart("");
+    setRangeEnd("");
+    setPage(1);
+    setRangeRequestVersion((version) => version + 1);
+  }
 
   const selectedPrediction = useMemo(() => {
     const visibleSelection = history.find((prediction) => prediction.prediction_id === selectedId);
@@ -443,23 +478,20 @@ export default function Page() {
               <input
                 id="range-start"
                 type="datetime-local"
-                value={rangeStart}
-                onChange={(event) => {
-                  setRangeStart(event.target.value);
-                  setPage(1);
-                }}
+                value={draftRangeStart}
+                onChange={(event) => setDraftRangeStart(event.target.value)}
               />
               <span>-</span>
               <input
                 id="range-end"
                 type="datetime-local"
-                value={rangeEnd}
-                onChange={(event) => {
-                  setRangeEnd(event.target.value);
-                  setPage(1);
-                }}
+                value={draftRangeEnd}
+                onChange={(event) => setDraftRangeEnd(event.target.value)}
               />
             </div>
+            <button type="button" onClick={applyDateRange}>
+              Apply range
+            </button>
             <label htmlFor="class-filter">Class filter</label>
             <select
               id="class-filter"
@@ -475,11 +507,7 @@ export default function Page() {
             </select>
             <button
               type="button"
-              onClick={() => {
-                setRangeStart("");
-                setRangeEnd("");
-                setPage(1);
-              }}
+              onClick={clearDateRange}
             >
               Clear range
             </button>
