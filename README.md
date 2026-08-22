@@ -1,6 +1,13 @@
 # Solar Flare Forecasting
 This repo presents the web application and deep learning pipeline that integrates full-disk solar flare prediction model and active region prediction models. Using three explainability methods (i) Guided Gradient=weighted Class Activation Mapping, (ii) Deep Shapley Additive Exaplantions, and (iii) Integrated Gradients.
 
+## Demo
+
+<video src="./demo_video.mp4" controls width="100%">
+  Your browser does not support embedded video. Download or view the
+  <a href="./demo_video.mp4">demo video</a> instead.
+</video>
+
 ## Structure
 
 - `app/`: backend server
