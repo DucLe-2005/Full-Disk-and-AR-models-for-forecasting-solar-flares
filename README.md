@@ -3,9 +3,9 @@ This repo presents the web application and deep learning pipeline that integrate
 
 ## Demo
 
-<video src="./demo_video.mp4" controls width="100%">
+<video src="https://github.com/DucLe-2005/full-disk-and-ar/blob/main/demo_video.mp4" controls width="100%">
   Your browser does not support embedded video. Download or view the
-  <a href="./demo_video.mp4">demo video</a> instead.
+  <a href="https://github.com/DucLe-2005/full-disk-and-ar/blob/main/demo_video.mp4">demo video</a> instead.
 </video>
 
 ## Structure
