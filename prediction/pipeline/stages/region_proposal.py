@@ -27,6 +27,11 @@ EAST_BUFFER = 10
 WEST_BUFFER = 60
 BINARY_THRESHOLD = 30
 PROPOSAL_HEATMAP_METHOD = "consensus"
+ATTRIBUTION_METHODS = (
+    "guided_gradcam",
+    "integrated_gradients",
+    "deepshap",
+)
 
 
 def polygon_to_bbox_xyxy(poly: np.ndarray) -> tuple[int, int, int, int]:
@@ -310,6 +315,59 @@ def bounding_hulls(
         final_hulls.append(hull)
 
     return final_hulls
+
+
+def bound_heatmap_regions(score_map: np.ndarray) -> tuple[np.ndarray, list[np.ndarray]]:
+    """Mask a normalized heatmap to the bounding regions found on that map."""
+    normalized_map = normalize_map(score_map)
+    heatmap_u8 = to_uint8_grayscale(normalized_map)
+    _, initial_hulls = get_hulls(
+        heatmap_u8=heatmap_u8,
+        lower_threshold=CANNY_LOWER_THRESHOLD,
+        upper_threshold=CANNY_UPPER_THRESHOLD,
+        min_samples=DBSCAN_MIN_SAMPLES,
+        eps=DBSCAN_EPS,
+    )
+    bounding_mask = draw_bounding_region(
+        polygons=initial_hulls,
+        image_shape=heatmap_u8.shape,
+        nw_angle=-20,
+        sw_angle=20,
+        east_buffer=EAST_BUFFER,
+        west_buffer=WEST_BUFFER,
+    )
+    polygons = bounding_hulls(img=bounding_mask, min_samples=2, eps=2)
+
+    filled_mask = np.zeros(heatmap_u8.shape, dtype=np.uint8)
+    if polygons:
+        cv.fillPoly(filled_mask, [poly.astype(np.int32) for poly in polygons], 1)
+    return normalized_map * filled_mask.astype(np.float32), polygons
+
+
+def save_bounded_heatmap_overlay(
+    bounded_map: np.ndarray,
+    polygons: list[np.ndarray],
+    image_path: str | Path,
+    output_dir: str | Path,
+    method_name: str,
+) -> Path:
+    """Save one pre-fusion heatmap with its bounding regions drawn on top."""
+    overlay = cv.applyColorMap(to_uint8_grayscale(bounded_map), cv.COLORMAP_INFERNO)
+    for polygon in polygons:
+        cv.polylines(
+            overlay,
+            [polygon.astype(np.int32)],
+            isClosed=True,
+            color=(0, 255, 255),
+            thickness=2,
+        )
+
+    image_stem = Path(image_path).stem or "unknown_image"
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+    save_path = output_path / f"{image_stem}_{method_name}_bounded.png"
+    Image.fromarray(cv.cvtColor(overlay, cv.COLOR_BGR2RGB)).save(save_path)
+    return save_path
 
 
 def draw_hulls(
@@ -602,7 +660,32 @@ def propose_active_regions(
         heatmap_output_dir=heatmap_output_dir,
         save_heatmaps=save_artifacts,
     )
-    proposal_score_map = attribution_result["maps"][PROPOSAL_HEATMAP_METHOD]
+    bounded_maps = {}
+    bounded_map_paths = {}
+    bounded_region_counts = {}
+    for method_name in ATTRIBUTION_METHODS:
+        bounded_map, bounded_polygons = bound_heatmap_regions(
+            attribution_result["maps"][method_name]
+        )
+        bounded_maps[method_name] = bounded_map
+        bounded_region_counts[method_name] = len(bounded_polygons)
+        if save_artifacts:
+            bounded_map_paths[method_name] = str(
+                save_bounded_heatmap_overlay(
+                    bounded_map=bounded_map,
+                    polygons=bounded_polygons,
+                    image_path=image_path,
+                    output_dir=heatmap_output_dir,
+                    method_name=method_name,
+                )
+            )
+
+    proposal_score_map = (
+        bounded_maps["guided_gradcam"]
+        * bounded_maps["integrated_gradients"]
+        * bounded_maps["deepshap"]
+    )
+    attribution_result["maps"][PROPOSAL_HEATMAP_METHOD] = proposal_score_map
     heatmap_path = None
     if save_artifacts:
         heatmap_path = save_heatmap_image(
@@ -689,7 +772,10 @@ def propose_active_regions(
         "regions": final_regions,
         "debug": {
             "proposal_heatmap_method": PROPOSAL_HEATMAP_METHOD,
+            "fusion_method": "element_wise_product_of_bounded_heatmaps",
             "attribution_map_paths": attribution_result["map_paths"],
+            "bounded_attribution_map_paths": bounded_map_paths,
+            "bounded_region_counts": bounded_region_counts,
             "heatmap_path": str(heatmap_path) if heatmap_path else None,
             "final_hulls_path": str(final_hulls_path) if final_hulls_path else None,
             "proposal_overlay_path": str(proposal_overlay_path) if proposal_overlay_path else None,
@@ -700,6 +786,7 @@ def propose_active_regions(
 __all__ = [
     "bbox_center_xy",
     "bounding_hulls",
+    "bound_heatmap_regions",
     "build_polygon_regions",
     "clip_box_xyxy",
     "crop_box_around_center_xyxy",
@@ -710,6 +797,7 @@ __all__ = [
     "propose_active_regions",
     "resize_box_to_original",
     "save_final_hulls_image",
+    "save_bounded_heatmap_overlay",
     "save_heatmap_image",
     "save_region_proposal_overlay",
     "score_polygon_from_map",

@@ -13,4 +13,8 @@ web/node_modules/
 web/*.log
 data/
 models/
-prediction/modeling/**/trained_models/
+# The production worker needs the two checkpoints used by the inference pipeline.
+# Ignore the other training outputs to keep its image reasonably small.
+prediction/modeling/**/trained_models/**
+!prediction/modeling/full_disk/trained_models/new-fold1.pth
+!prediction/modeling/active_region/trained_models/mobilenet/best_loss_ce.pth
