@@ -1,3 +1,7 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:2f0cfd14b59565b0e4ab2693523063ff064969e0d37f004167d9726067736378
-size 224
+from app.core.database import Base, engine
+from app.models.pipeline_job import PipelineJob
+from app.models.prediction import PredictionRecord
+
+
+def create_database_schema() -> None:
+    Base.metadata.create_all(bind=engine)

@@ -1,3 +1,28 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:15bd645065f27e833f74e8b116a59227402c9bedc06496840d54378c0090fbb6
-size 290
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Virtual environments
+venv/
+.venv/
+
+# Environment variables
+.env
+
+
+# Local data outputs
+data/
+/data/hmi_fits/
+/data/hmi_jp2/
+
+# Notebook artifacts
+.ipynb_checkpoints/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

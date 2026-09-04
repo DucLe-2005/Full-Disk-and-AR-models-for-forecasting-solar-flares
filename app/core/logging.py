@@ -1,3 +1,17 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:a26bccd46de57e5cd24fe59947a62b5dcf874bc86b97d6609a19711e9849b289
-size 520
+"""Shared logging configuration for application entry points."""
+
+from __future__ import annotations
+
+import logging
+
+
+DEFAULT_LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+
+
+def configure_logging(level: int = logging.INFO) -> None:
+    """Configure console logging once without replacing host-provided handlers."""
+    root_logger = logging.getLogger()
+    if not root_logger.handlers:
+        logging.basicConfig(level=level, format=DEFAULT_LOG_FORMAT)
+    else:
+        root_logger.setLevel(level)

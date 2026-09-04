@@ -1,3 +1,37 @@
-version https://git-lfs.github.com/spec/v1
-oid sha256:b54eccc7596d0ee5bd49c1d1318c2639967b21318a01ccc185c03758884f6c51
-size 1464
+from __future__ import annotations
+
+from datetime import datetime
+from enum import Enum
+from uuid import uuid4
+
+from sqlalchemy import JSON, DateTime, Enum as SqlEnum, Index, String, Text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from app.core.database import Base
+
+
+class JobStatus(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class PipelineJob(Base):
+    __tablename__ = "pipeline_jobs"
+    __table_args__ = (
+        Index("ix_pipeline_jobs_status_created_at", "status", "created_at"),
+        Index("ix_pipeline_jobs_status_requested_at", "status", "requested_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    status: Mapped[JobStatus] = mapped_column(SqlEnum(JobStatus), nullable=False, default=JobStatus.QUEUED)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    requested_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+
+    prediction_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
